@@ -1,9 +1,13 @@
 {
-  "name": "ai-code-reviewer",
+  "name": "ai-code-reviewer-pfe",
   "displayName": "AI Code Reviewer",
   "description": "9-agent multi-provider AI code review pipeline with RAG, debate, and multi-language support",
   "version": "1.0.0",
   "publisher": "faroukBouabid",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/faroukbouabid13/ai-code-reviewer"
+  },
   "engines": {
     "vscode": "^1.80.0"
   },
@@ -31,6 +35,10 @@
       {
         "command": "ai-reviewer.quietSave",
         "title": "AI Reviewer: Quiet Save (no review)"
+      },
+      {
+        "command": "ai-reviewer.generateCommitMessage",
+        "title": "AI Reviewer: Generate Commit Message"
       }
     ],
     "keybindings": [

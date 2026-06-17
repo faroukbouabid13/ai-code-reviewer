@@ -1,0 +1,11 @@
+.github/
+.vscode-test/
+src/
+node_modules/
+vector-store/
+.ai-reviewer/
+*.vsix
+.env
+architecture.html
+tsconfig.json
+.gitignore
