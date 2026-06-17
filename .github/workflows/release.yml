@@ -35,7 +35,9 @@ jobs:
           name: ai-code-reviewer-${{ github.ref_name }}
           path: '*.vsix'
 
-      - name: Publish to VS Code Marketplace
-        run: npx @vscode/vsce publish --no-dependencies
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_TOKEN }}
+      # To enable auto-publish: add VSCE_TOKEN secret in GitHub repo settings
+      # then uncomment the step below
+      # - name: Publish to VS Code Marketplace
+      #   run: npx @vscode/vsce publish --no-dependencies
+      #   env:
+      #     VSCE_PAT: ${{ secrets.VSCE_TOKEN }}

@@ -3,7 +3,7 @@
   "displayName": "AI Code Reviewer",
   "description": "9-agent multi-provider AI code review pipeline with RAG, debate, and multi-language support",
   "version": "1.0.0",
-  "publisher": "faroukbouabid",
+  "publisher": "faroukBouabid",
   "engines": {
     "vscode": "^1.80.0"
   },
