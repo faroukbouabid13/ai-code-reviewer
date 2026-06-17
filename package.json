@@ -1,0 +1,93 @@
+{
+  "name": "ai-code-reviewer",
+  "displayName": "AI Code Reviewer",
+  "description": "9-agent multi-provider AI code review pipeline with RAG, debate, and multi-language support",
+  "version": "1.0.0",
+  "publisher": "faroukbouabid",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": [
+    "onLanguage:typescript",
+    "onLanguage:javascript",
+    "onLanguage:typescriptreact",
+    "onLanguage:javascriptreact",
+    "onLanguage:python",
+    "onLanguage:java",
+    "onLanguage:go"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "ai-reviewer.analyze",
+        "title": "AI Reviewer: Analyze Current File"
+      },
+      {
+        "command": "ai-reviewer.clearHistory",
+        "title": "AI Reviewer: Clear History"
+      },
+      {
+        "command": "ai-reviewer.quietSave",
+        "title": "AI Reviewer: Quiet Save (no review)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "ai-reviewer.quietSave",
+        "key": "ctrl+shift+s",
+        "mac": "cmd+shift+s",
+        "when": "editorTextFocus"
+      }
+    ],
+    "configuration": {
+      "title": "AI Code Reviewer",
+      "properties": {
+        "aiReviewer.groqApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Groq API key — security + quality agents"
+        },
+        "aiReviewer.geminiApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Google Gemini API key — quality agent"
+        },
+        "aiReviewer.nvidiaApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "NVIDIA NIM API key — error, style, complexity, docs, tests agents"
+        },
+        "aiReviewer.cerebrasApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Cerebras API key — debate agent"
+        },
+        "aiReviewer.openrouterApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "OpenRouter API key — debate agent + embeddings fallback"
+        },
+        "aiReviewer.githubToken": {
+          "type": "string",
+          "default": "",
+          "description": "GitHub personal access token for PR integration"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "vectordb": "^0.21.2"
+  }
+}
