@@ -11,20 +11,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 18
-          cache: npm
+          node-version: '22'
 
-      - name: Install dependencies
-        run: npm ci
+      - run: npm ci --ignore-scripts
 
-      - name: Compile TypeScript
-        run: npm run compile
+      - run: npm run compile
 
       - name: Package extension
         run: npx @vscode/vsce package --no-dependencies
@@ -35,9 +30,7 @@ jobs:
           name: ai-code-reviewer-${{ github.ref_name }}
           path: '*.vsix'
 
-      # To enable auto-publish: add VSCE_TOKEN secret in GitHub repo settings
-      # then uncomment the step below
-      # - name: Publish to VS Code Marketplace
-      #   run: npx @vscode/vsce publish --no-dependencies
-      #   env:
-      #     VSCE_PAT: ${{ secrets.VSCE_TOKEN }}
+      - name: Publish to VS Code Marketplace
+        run: npx @vscode/vsce publish --no-dependencies
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_TOKEN }}
