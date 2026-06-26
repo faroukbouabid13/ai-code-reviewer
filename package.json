@@ -25,6 +25,25 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ai-reviewer-sidebar",
+          "title": "AI Code Reviewer",
+          "icon": "media/owl.svg"
+        }
+      ]
+    },
+    "views": {
+      "ai-reviewer-sidebar": [
+        {
+          "type": "webview",
+          "id": "ai-reviewer.sidebar",
+          "name": "AI Code Reviewer",
+          "icon": "media/owl.svg"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "ai-reviewer.analyze",

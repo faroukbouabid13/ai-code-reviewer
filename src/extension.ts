@@ -29,6 +29,7 @@ import { registerStatusUpdater } from "./agents/caller";
 import { installPreCommitHook } from "./git/hooks";
 import { showOnboardingPanel } from "./ui/onboardingPanel";
 import { signIn, signOut, getSession } from "./git/githubAuth";
+import { SidebarProvider } from "./ui/sidebarProvider";
 
 export function activate(context: vscode.ExtensionContext): void {
 
@@ -49,6 +50,12 @@ export function activate(context: vscode.ExtensionContext): void {
   // Install pre-commit quality gate hook in the workspace git repo
   const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (wsRoot) { installPreCommitHook(wsRoot); }
+
+  // ── Sidebar ─────────────────────────────────────────────────────
+  const sidebarProvider = new SidebarProvider(context);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(SidebarProvider.viewId, sidebarProvider)
+  );
 
   // ── Commands ────────────────────────────────────────────────────
 
@@ -74,6 +81,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const session = await signIn();
     if (session) {
       vscode.window.showInformationMessage(`AI Reviewer: Signed in as @${session.user.login} ✓`);
+      sidebarProvider.refresh();
     } else {
       vscode.window.showWarningMessage("AI Reviewer: GitHub sign-in failed.");
     }
@@ -87,6 +95,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const login = getSession()!.user.login;
     signOut();
     context.workspaceState.update("onboardingSkipped", false);
+    sidebarProvider.refresh();
     vscode.window.showInformationMessage(`AI Reviewer: Signed out of @${login}.`);
   });
 
