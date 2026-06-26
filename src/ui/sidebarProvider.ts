@@ -1,5 +1,10 @@
 import * as vscode from "vscode";
+import * as crypto from "crypto";
 import { getSession } from "../git/githubAuth";
+
+function getNonce(): string {
+  return crypto.randomBytes(16).toString("base64");
+}
 
 export class SidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewId = "ai-reviewer.sidebar";
@@ -10,7 +15,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   resolveWebviewView(webviewView: vscode.WebviewView): void {
     this._view = webviewView;
     webviewView.webview.options = { enableScripts: true };
-    webviewView.webview.html = this._buildHtml();
+    webviewView.webview.html = this._buildHtml(webviewView.webview);
 
     webviewView.webview.onDidReceiveMessage(msg => {
       switch (msg.type) {
@@ -35,11 +40,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
   refresh(): void {
     if (this._view) {
-      this._view.webview.html = this._buildHtml();
+      this._view.webview.html = this._buildHtml(this._view.webview);
     }
   }
 
-  private _buildHtml(): string {
+  private _buildHtml(webview: vscode.Webview): string {
+    const nonce = getNonce();
     const session = getSession();
     const ghBlock = session
       ? `<div class="gh-connected">
@@ -52,10 +58,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
            Connect GitHub
          </button>`;
 
+    const cspSource = webview.cspSource;
     return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}' ${cspSource};">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{
@@ -177,7 +184,7 @@ section{margin-bottom:16px}
 
 <div class="tip">Save any <strong>.ts</strong> or <strong>.py</strong> file to trigger a full review automatically.</div>
 
-<script>
+<script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
 function send(type){ vscode.postMessage({type}); }
 </script>
