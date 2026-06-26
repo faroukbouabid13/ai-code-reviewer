@@ -2,7 +2,7 @@
   "name": "faroukbouabid-ai-code-reviewer",
   "displayName": "AI Code Reviewer by faroukBouabid",
   "description": "9-agent multi-provider AI code review pipeline with RAG, debate, and multi-language support",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "faroukBouabid",
   "repository": {
     "type": "git",
@@ -11,8 +11,10 @@
   "engines": {
     "vscode": "^1.80.0"
   },
+  "icon": "icon.png",
   "categories": ["Other"],
   "activationEvents": [
+    "onStartupFinished",
     "onLanguage:typescript",
     "onLanguage:javascript",
     "onLanguage:typescriptreact",
@@ -39,6 +41,18 @@
       {
         "command": "ai-reviewer.generateCommitMessage",
         "title": "AI Reviewer: Generate Commit Message"
+      },
+      {
+        "command": "ai-reviewer.showWelcome",
+        "title": "AI Reviewer: Show Welcome Screen"
+      },
+      {
+        "command": "ai-reviewer.githubSignIn",
+        "title": "AI Reviewer: Connect GitHub Account"
+      },
+      {
+        "command": "ai-reviewer.githubSignOut",
+        "title": "AI Reviewer: Disconnect GitHub Account"
       }
     ],
     "keybindings": [
@@ -76,6 +90,11 @@
           "type": "string",
           "default": "",
           "description": "OpenRouter API key — debate agent + embeddings fallback"
+        },
+        "aiReviewer.anthropicApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Anthropic API key — security agent (claude-haiku-4-5)"
         },
         "aiReviewer.githubToken": {
           "type": "string",

@@ -20,9 +20,11 @@ import { ensureHistory, writeAuditLog,
          loadStyleConfig, readPackageJson, clearHistory }   from "../store/history";
 import { loadLastAnalysis, saveLastAnalysis,
          buildIssueSignatures, computeDiffReview }          from "../store/diffReview";
+import { writePreCommitCheck }                              from "../git/hooks";
 import { publishDiagnostics }                               from "../ui/diagnostics";
 import { buildHtml, buildStreamSection }                     from "../ui/htmlBuilder";
 import { setupWebviewMessages }                             from "../ui/webview";
+import { setExportData }                                   from "./analysisStore";
 
 import type {
   FunctionInfo, DependenciesResult,
@@ -330,10 +332,20 @@ export async function analyze(
       providerLog.push(`⏰ Temporal [${fnInfo.name}]: no git history — file not committed`);
     }
 
+    // ── File context: imports + module-level declarations above the function ─
+    const fileLines    = content.split("\n");
+    const beforeFn     = fileLines.slice(0, Math.max(0, fnInfo.start - 1));
+    // First 50 lines capture imports, constants, class signatures for any language
+    const ctxLines     = beforeFn.slice(0, 50);
+    // If function is deep in the file, also grab the 5 lines just before it
+    if (beforeFn.length > 55) { ctxLines.push(...beforeFn.slice(-5)); }
+    const fileContext  = [...new Set(ctxLines)].join("\n").trim() || undefined;
+
     // ── Build AgentInput ──────────────────────────────────────────
     const agentInput = {
       functionName:     fnInfo.name,
       code,
+      fileContext,
       language:         adapter.languageLabel,
       testFramework:    adapter.testFramework,
       docFormat:        adapter.docFormat,
@@ -434,6 +446,22 @@ export async function analyze(
 
   }
 
+  // ── Write pre-commit quality gate ────────────────────────────────
+  const scored = pageResults.filter(r => r.analysis.overallScore > 0);
+  if (scored.length > 0) {
+    const minScore = Math.min(...scored.map(r => r.analysis.overallScore));
+    writePreCommitCheck(workspace, {
+      timestamp: new Date().toISOString(),
+      functions: pageResults.map(r => ({
+        name:  r.fnInfo.name,
+        file:  relative,
+        score: r.analysis.overallScore,
+      })),
+      minScore,
+      blocked: minScore < 5,
+    });
+  }
+
   // ── Step 5: Publish diagnostics ──────────────────────────────────
   publishDiagnostics(
     diagnosticCollection,
@@ -457,6 +485,7 @@ export async function analyze(
     providerLog,
     tokenUsage:         getTokenUsage(),
   });
+  setExportData({ file: relative, results: pageResults, dependenciesResult, git: { remote: git.remote, branch: git.branch } });
   p.reveal(vscode.ViewColumn.Beside, true);
 
   // ── Step 7: Status bar summary ───────────────────────────────────

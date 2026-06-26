@@ -8,24 +8,26 @@
 export function parseJSON(raw: string): any | null {
   if (!raw) { return null; }
 
-  // Strip DeepSeek thinking tokens.  Two passes:
-  //   1. Properly closed:  <think>...</think>  — standard case
-  //   2. Unclosed:         <think>...{json}   — reasoning models sometimes omit </think>
-  //      In this case the JSON follows the thinking on its own line; we find the
-  //      last "\n{" in the string and take everything from there.
+  // Strip thinking tokens — multiple formats used by different models.
+  // Pass 1: properly closed blocks (DeepSeek <think>, Llama <thinking>, bracket forms)
+  // Pass 2: unclosed <think> — find last \n{ and take from there
   let cleaned = raw
     .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
+    .replace(/\[THINKING\][\s\S]*?\[\/THINKING\]/gi, "")
     .replace(/```json\s*/gi, "")
     .replace(/```\s*/g, "")
     .trim();
 
-  if (/<think>/i.test(cleaned)) {
+  // Handle unclosed or non-standard thinking prefix: if any pre-JSON text appears
+  // before the first {, and the string is longer than the JSON portion alone,
+  // jump to the last \n{ which is almost always the start of the real JSON.
+  if (/<think>/i.test(cleaned) || /<thinking>/i.test(cleaned)) {
     const nl = cleaned.lastIndexOf("\n{");
     if (nl !== -1) {
       cleaned = cleaned.slice(nl + 1).trim();
     } else {
-      // No newline before {, strip from <think> to the first {
-      const ti = cleaned.indexOf("<think>");
+      const ti = cleaned.search(/<think(?:ing)?>/i);
       const ji = cleaned.indexOf("{", ti);
       if (ji !== -1) { cleaned = cleaned.slice(ji); }
     }

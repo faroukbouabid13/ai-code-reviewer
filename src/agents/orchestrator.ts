@@ -56,6 +56,14 @@ function langCtxBlock(input: AgentInput): string {
   return `<language_context>\n${parts.join("\n")}\n</language_context>`;
 }
 
+function fileContextBlock(input: AgentInput): string {
+  if (!input.fileContext) { return ""; }
+  // Replace double quotes with single quotes so the LLM doesn't mirror
+  // the double-quote style into JSON response fields (which breaks parsing)
+  const ctx = input.fileContext.replace(/"/g, "'");
+  return `<file_context>\n${ctx}\n</file_context>`;
+}
+
 function fixedCodeInstruction(input: AgentInput): string {
   const lang = input.language ?? "TypeScript";
   if (lang === "TypeScript" || lang === "JavaScript") {
@@ -128,13 +136,22 @@ OUTPUT RULES
   Reason: forces explicit confirmation that no item was silently skipped.
 - vulnerabilities[]: one entry per FAIL item. Fields: severity, type, description, impact, fixedCode.
   severity must be exactly one of: "critical" | "high" | "medium" | "low"
-- fixedCode: complete corrected function in the SAME LANGUAGE as the input — NEVER English prose.
-- JSON SAFETY: fixedCode is a JSON string — use single quotes (') for string literals inside the code, not double quotes ("). For Python use ''' for docstrings, never \"\"\". Use \\n for line breaks.
-- summary: one sentence — worst finding, or "No vulnerabilities detected."
+- fixedCode: complete corrected function in the SAME LANGUAGE as the input — NEVER English prose. Keep under 20 lines, no docstrings.
+- JSON SAFETY — CRITICAL: ALL string values in the JSON MUST be delimited by double-quotes ("). The fixedCode value is a JSON string — it MUST start and end with ". NEVER use ''' or """ as a JSON string delimiter.
+  You MUST NOT use double quotes (") inside any fixedCode value — use single quotes (') for ALL string literals in code.
+  WRONG: raise ValueError("invalid id")   → breaks JSON parsing
+  RIGHT:  raise ValueError('invalid id')   → safe
+  WRONG: logger.error("Failed")           → breaks JSON parsing
+  RIGHT:  logger.error('Failed')           → safe
+  Use \\n for line breaks — never literal newlines inside JSON string values.
+- summary: one sentence — worst finding, or "No vulnerabilities detected." Must be the LAST key.
 - Raw JSON only. No fences, no text outside the object.
 
-EXAMPLE OUTPUT:
-{"securityScore":2,"checkedItems":["1. SQL injection: PASS","2. XSS: PASS","3. Hardcoded secrets: PASS","4. Code injection: PASS","5. Prototype pollution: PASS","6. Path traversal: PASS","7. Insecure randomness: PASS","8. Input validation: PASS","9. Sensitive data in logs: PASS","10. Sensitive data in responses: PASS","11. Weak token generation: FAIL — Buffer.from(username+Date.now()) is base64-predictable","12. Timing attacks: FAIL — plain == used to compare token","13. Server-side storage: PASS"],"vulnerabilities":[{"severity":"critical","type":"Weak Token Generation","description":"Token is base64(username+timestamp) — trivially predictable by any attacker who knows the username and approximate time","impact":"Account takeover without brute-force — attacker computes the token directly","fixedCode":"const token = crypto.randomBytes(32).toString('hex');"},{"severity":"high","type":"Timing Attack","description":"Token compared with == which leaks comparison length via response timing","impact":"Attacker can enumerate token bytes one at a time via timing oracle","fixedCode":"if (!crypto.timingSafeEqual(Buffer.from(stored,'hex'),Buffer.from(token,'hex'))) throw new Error('Invalid token');"}],"summary":"Critical weak token and timing-attack vulnerability in auth flow."}`;
+EXAMPLE OUTPUT (TypeScript):
+{"securityScore":2,"checkedItems":["1. SQL injection: PASS","2. XSS: PASS","3. Hardcoded secrets: PASS","4. Code injection: PASS","5. Prototype pollution: PASS","6. Path traversal: PASS","7. Insecure randomness: PASS","8. Input validation: PASS","9. Sensitive data in logs: PASS","10. Sensitive data in responses: PASS","11. Weak token generation: FAIL — Buffer.from(username+Date.now()) is base64-predictable","12. Timing attacks: FAIL — plain == used to compare token","13. Server-side storage: PASS"],"vulnerabilities":[{"severity":"critical","type":"Weak Token Generation","description":"Token is base64(username+timestamp) — trivially predictable","impact":"Account takeover without brute-force","fixedCode":"const token = crypto.randomBytes(32).toString('hex');"},{"severity":"high","type":"Timing Attack","description":"Token compared with == leaks length via timing","impact":"Attacker enumerates token bytes via timing oracle","fixedCode":"if (!crypto.timingSafeEqual(Buffer.from(stored,'hex'),Buffer.from(token,'hex'))) throw new Error('Invalid token');"}],"summary":"Critical weak token and timing-attack vulnerability in auth flow."}
+
+EXAMPLE OUTPUT (Python) — notice fixedCode uses " as JSON delimiter with single-quoted strings INSIDE:
+{"securityScore":2,"checkedItems":["1. SQL injection: PASS","2. XSS: PASS","3. Hardcoded secrets: FAIL — API_KEY assigned as string literal","4. Code injection: PASS","5. Prototype pollution: PASS","6. Path traversal: PASS","7. Insecure randomness: PASS","8. Input validation: FAIL — user_id not validated","9. Sensitive data in logs: PASS","10. Sensitive data in responses: PASS","11. Weak token generation: PASS","12. Timing attacks: PASS","13. Server-side storage: PASS"],"vulnerabilities":[{"severity":"critical","type":"Hardcoded Secret","description":"API_KEY is a string literal in source code — visible in version control to all contributors","impact":"Any repo reader can authenticate as the service and access the API","fixedCode":"import os\\nimport requests\\n\\ndef Get_User_Data(user_id):\\n    api_key = os.environ.get('API_KEY')\\n    if not api_key:\\n        raise ValueError('API_KEY environment variable not set')\\n    headers = {'Authorization': f'Bearer {api_key}'}\\n    response = requests.get(f'https://api.example.com/users/{user_id}', headers=headers, timeout=10)\\n    response.raise_for_status()\\n    return response.json()"}],"summary":"Critical hardcoded API key must be moved to an environment variable."}`;
 
 /* ─────────────────────────────────────────────────────────────────
    QUALITY AGENT — Mistral Large 3 675B
@@ -142,19 +159,23 @@ EXAMPLE OUTPUT:
 
 const QUALITY_SYSTEM = `IMPORTANT: Start your response with { and end with }. Do NOT use markdown code fences. Raw JSON only.
 
-You are a senior code quality engineer for multiple languages (TypeScript, JavaScript, Python, Java, Go). Analyse the function for bugs, logic errors, performance issues, and readability ONLY. When <language_context> is present, generate all fixedCode and refactoredFunction in that language.
+You are a senior code quality engineer for multiple languages (TypeScript, JavaScript, Python, Java, Go). Analyse the function for bugs, logic errors, performance issues, and readability ONLY. When <language_context> is present, generate all fixedCode in that language.
 
 RULES:
 - score: 1-4=bug/wrong output, 5-7=smell, 8-10=clean
 - CALIBRATION: score 8-10 means ZERO issues. If issues[] non-empty, score MUST be ≤7. Default to 5 when uncertain.
-- refactoredFunction: write the complete improved function in the SAME LANGUAGE as the input code when score<8. NEVER set this to null when score<8.
+- DO NOT write a refactoredFunction. A dedicated synthesis agent handles the final refactor after reading ALL agents' findings.
 - Use EXACTLY: severity, description, suggestion, fixedCode. Never use message/text/fix/level.
-- fixedCode must be a complete, runnable code snippet in the SAME LANGUAGE as the input code — never English prose. For TypeScript/JavaScript start with \`function\`/\`const\`; for Python start with \`def\`/\`async def\`; for Java/Go use the appropriate syntax.
-- JSON SAFETY: All code in JSON string fields must use single-quoted strings (') instead of double-quoted strings (") to avoid breaking JSON encoding. For Python: use ''' for docstrings, never \"\"\". Use \\n for line breaks in multiline code.
+- fixedCode: one short corrected snippet (max 6 lines, NO comments, NO docstrings). Show only the fixed line(s). Never write the full function here.
+- issues[]: report ALL issues found, up to MAX 6. description: one sentence, max 12 words. suggestion: one sentence, max 10 words.
+- JSON SAFETY — CRITICAL: ALL JSON string values MUST be delimited by double-quotes ("). NEVER use single quotes (') or triple quotes as a JSON string delimiter.
+  Inside the code value: use single quotes for string literals → console.error('Failed') not console.error("Failed")
+  Use \\n for line breaks — NEVER literal newlines inside a JSON string value.
+- KEY ORDER: output keys in this exact order: score, summary, matchedTemplate, prInsight, issues.
 - Output raw JSON only. Start with { end with }.
 
 EXAMPLE OUTPUT:
-{"score":4,"summary":"Off-by-one error causes crash on last iteration.","matchedTemplate":null,"prInsight":"No PR context.","issues":[{"severity":"error","description":"Loop condition i <= arr.length accesses undefined","suggestion":"Change to i < arr.length","fixedCode":"function sum(arr: number[]): number { return arr.reduce((t,x)=>t+x,0); }"}],"refactoredFunction":"function sum(arr: number[]): number { return arr.reduce((t,x)=>t+x,0); }"}`;
+{"score":4,"summary":"Off-by-one crash and missing types on all parameters.","matchedTemplate":null,"prInsight":"No PR context.","issues":[{"severity":"error","description":"Loop condition i <= arr.length crashes on last item","suggestion":"Change to i < arr.length","fixedCode":"for (let i = 0; i < arr.length; i++) {"},{"severity":"error","description":"All parameters are untyped, defeating TypeScript safety","suggestion":"Add explicit types to every parameter","fixedCode":"function sum(arr: number[], scale: number): number {"},{"severity":"warning","description":"var keyword used instead of const or let","suggestion":"Replace var with const or let throughout","fixedCode":"const result: number[] = [];"}]}`;
 
 /* ─────────────────────────────────────────────────────────────────
    ERROR HANDLING AGENT — DeepSeek V4 Flash
@@ -181,7 +202,7 @@ function buildSecurityUser(input: AgentInput, compileErrors: CompileError[]): st
   const errBlock = compileErrors.length > 0
     ? `<compile_errors>\n${compileErrors.map(e => `  line ${e.line}: ${e.message}`).join("\n")}\n</compile_errors>`
     : "";
-  return [langCtxBlock(input), codeBlock(input), errBlock, ragBlock(input), prBlock(input)].filter(Boolean).join("\n") +
+  return [langCtxBlock(input), fileContextBlock(input), codeBlock(input), errBlock, ragBlock(input), prBlock(input)].filter(Boolean).join("\n") +
     `\n\nAnalyse ONLY security vulnerabilities. ${fixedCodeInstruction(input)}`;
 }
 
@@ -189,7 +210,7 @@ function buildQualityUser(input: AgentInput, compileErrors: CompileError[]): str
   const errBlock = compileErrors.length > 0
     ? `<compile_errors>\n${compileErrors.map(e => `  line ${e.line}: ${e.message}`).join("\n")}\n</compile_errors>`
     : "";
-  return [langCtxBlock(input), codeBlock(input), errBlock, ragBlock(input), prBlock(input)].filter(Boolean).join("\n") +
+  return [langCtxBlock(input), fileContextBlock(input), codeBlock(input), errBlock, ragBlock(input), prBlock(input)].filter(Boolean).join("\n") +
     `\n\nAnalyse ONLY code quality (bugs, logic errors, performance). ${fixedCodeInstruction(input)}`;
 }
 
@@ -197,7 +218,7 @@ function buildErrorUser(input: AgentInput, compileErrors: CompileError[]): strin
   const errBlock = compileErrors.length > 0
     ? `<compile_errors>\n${compileErrors.map(e => `  line ${e.line}: ${e.message}`).join("\n")}\n</compile_errors>`
     : "";
-  return [langCtxBlock(input), codeBlock(input), errBlock].filter(Boolean).join("\n") +
+  return [langCtxBlock(input), fileContextBlock(input), codeBlock(input), errBlock].filter(Boolean).join("\n") +
     `\n\nAnalyse ONLY error handling gaps. ${fixedCodeInstruction(input)}`;
 }
 
@@ -246,20 +267,30 @@ You are a documentation specialist, test engineer, and dependency analyst for mu
 
 RULES:
 - hasAdequateDocs: true ONLY when parameters, return type, and at least one example are ALL documented.
-- jsdocBlock: write a complete, paste-ready doc comment in the SAME FORMAT as the input language: JSDoc (/**) for TypeScript/JavaScript, Google-style docstring for Python (use ''' triple single-quotes NOT """), Javadoc for Java, GoDoc for Go. Reason: rendered in the IDE.
+- jsdocBlock: write a complete, paste-ready doc comment. CRITICAL FORMAT RULE: the JSON value MUST be wrapped in double-quotes like any other JSON string: "jsdocBlock": "...content...". For TypeScript/JavaScript use JSDoc (/**). For Python use Google-style with ''' triple-single-quote inside the JSON string — the ''' is Python syntax INSIDE the " JSON string, it is NOT the JSON delimiter. For Java use Javadoc. For Go use GoDoc.
 - testCode: write a complete test suite in the SAME FRAMEWORK as the input language: Jest describe() for TypeScript/JavaScript, pytest functions (def test_) for Python, JUnit 5 for Java, testing.T for Go. Reason: developer copies it directly. Include: happy path, null/None input, boundary values, error cases.
 - Mock external calls (jest.fn() / unittest.mock / Mockito) — no real I/O in tests.
 - dependencyScore: 10=no issues, 1=critical CVE. Flag lodash<4.17.21, axios<1.6.0, minimist<1.2.6.
 - Use EXACTLY these field names: description, suggestion, fixedCode, severity, jsdocBlock, testCode. Never use message/text/fix/level instead.
 - CALIBRATION: dependencyScore of 8-10 means ZERO dependency issues found. If issues[] is non-empty, score MUST be 7 or lower. Default to 5 when uncertain, never 8.
-- JSON SAFETY — CRITICAL: The jsdocBlock and testCode values are JSON strings. You MUST NOT use double quotes (") inside them — use single quotes (') for all string literals in code. For Python docstrings use ''' (triple single-quote), NEVER \"\"\" (triple double-quote). Use \\n for line breaks. Violating this breaks the JSON parser and your entire response is lost.
+- JSON SAFETY — CRITICAL: ALL string values in the JSON MUST be delimited by double-quotes ("). NEVER use ''' or \"\"\" as a JSON string delimiter — they are only valid INSIDE an already-opened \" JSON string.
+  You MUST NOT use double quotes (") inside jsdocBlock or testCode values — use single quotes (') for ALL string literals and dict keys in code. Use \\n for line breaks. Violating this breaks the JSON parser and your entire response is lost.
+  For Python dicts in assertions — WRONG: assert r == {"id": 1}  RIGHT: assert r == {'id': 1}
+  For Python strings in tests — WRONG: mock.return_value = {"status": "ok"}  RIGHT: mock.return_value = {'status': 'ok'}
+  For Python f-strings — WRONG: f"Hello {name}"  RIGHT: f'Hello {name}'
 - Output raw JSON only. Do NOT use markdown code fences. Start your response with { and end with }. Reason: markdown breaks the parser.
 
-EXAMPLE INPUT:
+EXAMPLE INPUT (TypeScript):
 function divide(a: number, b: number): number { if(b===0) throw new Error('Division by zero'); return a/b; }
 
-EXAMPLE OUTPUT:
-{"docs":{"hasAdequateDocs":false,"functionNameSuggestion":null,"paramSuggestions":[],"jsdocBlock":"/**\\n * Divides two numbers.\\n * @param {number} a - The dividend.\\n * @param {number} b - The divisor.\\n * @returns {number} The result of a divided by b.\\n * @throws {Error} When b is zero.\\n * @example divide(10,2); // 5\\n */","summary":"No JSDoc present — generated complete block."},"tests":{"testCode":"describe('divide', () => {\\n  it('divides two positive numbers', () => { expect(divide(10,2)).toBe(5); });\\n  it('handles negative dividend', () => { expect(divide(-6,2)).toBe(-3); });\\n  it('returns float for non-integer result', () => { expect(divide(1,3)).toBeCloseTo(0.333,3); });\\n  it('throws when divisor is zero', () => { expect(()=>divide(10,0)).toThrow('Division by zero'); });\\n  it('returns 0 when dividend is 0', () => { expect(divide(0,5)).toBe(0); });\\n});","testCount":5,"edgeCasesCovered":["negative dividend","float result","zero divisor throws","zero dividend"],"summary":"5 tests covering happy path, float, negative, and zero divisor error."},"dependencies":{"dependencyScore":10,"issues":[],"summary":"No package.json provided."}}`;
+EXAMPLE OUTPUT (TypeScript):
+{"docs":{"hasAdequateDocs":false,"functionNameSuggestion":null,"paramSuggestions":[],"jsdocBlock":"/**\\n * Divides two numbers.\\n * @param {number} a - The dividend.\\n * @param {number} b - The divisor.\\n * @returns {number} The result of a divided by b.\\n * @throws {Error} When b is zero.\\n * @example divide(10,2); // 5\\n */","summary":"No JSDoc present — generated complete block."},"tests":{"testCode":"describe('divide', () => {\\n  it('divides two positive numbers', () => { expect(divide(10,2)).toBe(5); });\\n  it('throws when divisor is zero', () => { expect(()=>divide(10,0)).toThrow('Division by zero'); });\\n  it('returns 0 when dividend is 0', () => { expect(divide(0,5)).toBe(0); });\\n});","testCount":3,"edgeCasesCovered":["zero divisor throws","zero dividend"],"summary":"3 tests covering happy path and zero divisor error."},"dependencies":{"dependencyScore":10,"issues":[],"summary":"No package.json provided."}}
+
+EXAMPLE INPUT (Python):
+def get_item(item_id): return db.query(item_id)
+
+EXAMPLE OUTPUT (Python) — notice jsdocBlock uses " as JSON delimiter with ''' INSIDE the string:
+{"docs":{"hasAdequateDocs":false,"functionNameSuggestion":null,"paramSuggestions":["item_id: str"],"jsdocBlock":"'''\\nGet item by ID.\\n\\nArgs:\\n    item_id: The item identifier.\\n\\nReturns:\\n    dict: Item data or None.\\n\\nExample:\\n    result = get_item('abc123')\\n'''","summary":"No docstring present — generated Google-style block."},"tests":{"testCode":"import pytest\\nfrom unittest.mock import patch, MagicMock\\n\\ndef test_get_item_success():\\n    with patch('db.query', return_value={'id': '1', 'name': 'test'}) as mock_q:\\n        result = get_item('1')\\n        mock_q.assert_called_once_with('1')\\n        assert result == {'id': '1', 'name': 'test'}\\n\\ndef test_get_item_none():\\n    with patch('db.query', return_value=None):\\n        assert get_item('missing') is None\\n","testCount":2,"edgeCasesCovered":["happy path","none result"],"summary":"2 pytest tests covering success and missing item."},"dependencies":{"dependencyScore":10,"issues":[],"summary":"No package.json provided."}}`;
 
 function buildGroup3User(input: AgentInput): string {
   const deps = input.packageJson
@@ -312,6 +343,44 @@ RULES:
 
 EXAMPLE OUTPUT:
 {"verdict":"approve_with_followup","openingStatement":"These are real issues, but none are exploitable in this internal-only code path, and blocking the merge costs us a sprint we don't have.","arguments":[{"issue":"Missing try/catch around async DB call","reasoning":"This runs behind an admin-only feature flag with no external traffic — file a follow-up ticket and fix it in the next pass rather than holding the release."},{"issue":"Cyclomatic complexity of 12","reasoning":"The function is well-covered by the generated test suite, so the complexity risk is mitigated even without an immediate refactor."}]}`;
+
+/* ─────────────────────────────────────────────────────────────────
+   SYNTHESIS AGENT — final refactor incorporating ALL findings
+   ───────────────────────────────────────────────────────────────── */
+
+const SYNTHESIS_SYSTEM = `IMPORTANT: Start your response with { and end with }. Do NOT use markdown code fences. Raw JSON only.
+
+You are a staff engineer doing the FINAL refactor pass. You have the original code and ALL issues found by 9 specialized agents (security, quality, error handling, complexity, style, duplication). Your job: write ONE definitive refactored function FROM SCRATCH that fixes EVERY issue listed. Do not copy the original — rewrite it cleanly.
+
+RULES:
+- Fix ALL issues from ALL categories listed in the input — not just quality ones.
+- Output ONLY: {"refactoredFunction":"..."}
+- Function definition only. NO import statements. NO module-level code. Start directly with def/function/async function/const.
+- Under 40 lines.
+- JSON SAFETY: use single quotes for ALL string literals inside the code. Use \\n for line breaks — NEVER literal newlines inside the JSON string value.
+- TypeScript rules: NEVER use 'any' — use specific types or 'unknown'. Caught errors must be catch(e: unknown) narrowed with (e instanceof Error ? e.message : String(e)). fetch() must use AbortController with 5000ms timeout. Return types must be explicit. Validate string inputs (falsy check). Return null not undefined on failure. ALWAYS use template literals — NEVER string concatenation.
+- Python rules: NEVER hardcode secrets — use os.environ.get('KEY','') instead. Always catch specific exceptions (requests.RequestException, ValueError, json.JSONDecodeError), never bare except. Always pass timeout=10 to requests calls. Use snake_case names and f-strings. Add type hints to all params and return value.
+- LOGGING RULE: NEVER log business data, user data, API responses, or objects with JSON.stringify — this is a security violation. Only log counts, IDs, status codes. WRONG: console.log(JSON.stringify(orders)) — RIGHT: console.log('fetched', orders.length, 'orders').
+- The result must score 8-10/10 on re-analysis. It must leave ZERO of the listed issues unfixed.
+
+EXAMPLE OUTPUT (TypeScript fetch with timeout, no data logging, template literals):
+{"refactoredFunction":"async function fetchUserOrders(userId: string): Promise<Order[] | null> {\\n  if (!userId) return null;\\n  const apiKey = process.env.API_KEY || '';\\n  if (!apiKey) { console.error('API_KEY not set'); return null; }\\n  const ctrl = new AbortController();\\n  const timer = setTimeout(() => ctrl.abort(), 5000);\\n  try {\\n    const res = await fetch('/api/orders?user=' + userId, { headers: { 'Authorization': 'Bearer ' + apiKey }, signal: ctrl.signal });\\n    clearTimeout(timer);\\n    if (!res.ok) { console.error('fetchUserOrders HTTP', res.status); return null; }\\n    const data = await res.json();\\n    const active = (data?.orders ?? []).filter((o: Order) => o.status === 'active');\\n    console.log('fetched', active.length, 'active orders');\\n    return active;\\n  } catch (e: unknown) {\\n    clearTimeout(timer);\\n    console.error('fetchUserOrders failed:', e instanceof Error ? e.message : String(e));\\n    return null;\\n  }\\n}"}`;
+
+function buildSynthesisUser(input: AgentInput, qual: any, sec: any, err: any, g2: any): string {
+  const issues: string[] = [];
+  (sec?.vulnerabilities    ?? []).forEach((v: any) => issues.push(`[security/${v.severity}] ${v.type}: ${v.description}`));
+  (qual?.issues            ?? []).forEach((i: any) => issues.push(`[quality/${i.severity}] ${i.description}${i.suggestion ? " → " + i.suggestion : ""}`));
+  (err?.issues             ?? []).forEach((i: any) => issues.push(`[errorHandling/${i.severity}] ${i.type ?? "issue"}: ${i.description}`));
+  (g2?.style?.violations   ?? []).forEach((v: any) => issues.push(`[style] ${v.rule}: ${v.description}`));
+  (g2?.complexity?.issues  ?? []).forEach((i: any) => issues.push(`[complexity] ${i.description}`));
+  (g2?.duplication?.issues ?? []).forEach((i: any) => issues.push(`[duplication] ${i.description}`));
+
+  const issueList = issues.length
+    ? issues.map((x, n) => `${n + 1}. ${x}`).join("\n")
+    : "No specific issues — improve overall code quality and robustness.";
+
+  return `ORIGINAL CODE:\n${codeBlock(input)}\n\nALL ISSUES FOUND BY 9 AGENTS (fix every single one):\n${issueList}\n\nWrite the complete refactored function from scratch fixing ALL issues above. Output JSON only.`;
+}
 
 function buildIssuesSummary(sec: any, qual: any, err: any, g2: any): string {
   const lines: string[] = [];
@@ -414,7 +483,6 @@ export async function runAgentWaves(
       qualRaw = raw; qual = parseJSON(raw);
       if (qual?.score !== undefined) {
         emit("quality", qual);
-        emit("refactor", qual?.refactoredFunction ?? null);
       }
     } catch {}
     return raw;
@@ -467,17 +535,35 @@ export async function runAgentWaves(
   if (r3.status    === "rejected") { providerLog.push(`group 3 error:  ${(r3    as any).reason?.message ?? "unknown"}`); }
 
   // ── Parse warnings ────────────────────────────────────────────────
-  if (rSec.status  === "fulfilled" && !sec?.securityScore)     { const r=(rSec as any).value??""; providerLog.push(`security parse warn: keys=[${Object.keys(sec??{}).join(",")}] len=${r.length} end="${r.slice(-120)}"`); }
+  if (rSec.status  === "fulfilled" && !sec?.securityScore)     { const r=(rSec as any).value??""; providerLog.push(`security parse warn: keys=[${Object.keys(sec??{}).join(",")}] len=${r.length} start="${r.slice(0,120)}" end="${r.slice(-120)}"`); }
   if (rQual.status === "fulfilled" && !qual?.score)            { providerLog.push(`quality parse warn:  keys=[${Object.keys(qual??{}).join(",")}] len=${qualRaw.length} end="${qualRaw.slice(-120)}"`); }
   if (rErr.status  === "fulfilled" && !err?.errorHandlingScore){ providerLog.push(`error parse warn: keys=[${Object.keys(err??{}).join(",")}] len=${errRaw.length} start="${errRaw.slice(0,120)}" end="${errRaw.slice(-80)}"`); }
   if (r2.status    === "fulfilled" && !g2?.complexity)         { providerLog.push(`group 2 parse warn: keys=[${Object.keys(g2Parsed??{}).join(",")}] len=${g2Raw.length} start="${g2Raw.slice(0,120)}" end="${g2Raw.slice(-80)}"`); }
-  if (r3.status    === "fulfilled" && !g3?.docs)               { providerLog.push(`group 3 parse warn:  keys=[${Object.keys(g3??{}).join(",")}] len=${g3Raw.length} end="${g3Raw.slice(-80)}"`); }
+  if (r3.status    === "fulfilled" && !g3?.docs)               { providerLog.push(`group 3 parse warn:  keys=[${Object.keys(g3??{}).join(",")}] len=${g3Raw.length} start="${g3Raw.slice(0,150)}" end="${g3Raw.slice(-80)}"`); }
 
   const overallScore = calcOverallScore(sec, qual, err, g2, g3);
 
+  // ── Synthesis agent — final refactor incorporating ALL findings ───
+  if (qual?.score !== undefined && qual.score < 8) {
+    try {
+      const synthesisUser = buildSynthesisUser(agentInput, qual, sec, err, g2);
+      const synthRaw      = await callAgent(SYNTHESIS_SYSTEM, synthesisUser, "synthesis");
+      const synth         = parseJSON(synthRaw);
+      if (synth?.refactoredFunction) {
+        qual.refactoredFunction = synth.refactoredFunction;
+        emit("refactor", synth.refactoredFunction);
+        providerLog.push(`synthesis agent → groq ${GROQ_MODEL} · fulfilled`);
+      } else {
+        providerLog.push(`synthesis agent: no refactoredFunction in response`);
+      }
+    } catch (e: any) {
+      providerLog.push(`synthesis agent error: ${e.message ?? "unknown"}`);
+    }
+  }
+
   // ── Two Agents Debate — grey-zone scores (4-7) only ──────────────
   let debate: DebateResult | null = null;
-  if (overallScore >= 4 && overallScore <= 7) {
+  if (overallScore >= 3 && overallScore <= 7) {
     const issuesSummary = buildIssuesSummary(sec, qual, err, g2);
     const debateUser    = buildDebateUser(agentInput, overallScore, issuesSummary);
 

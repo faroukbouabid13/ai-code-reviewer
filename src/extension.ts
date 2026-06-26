@@ -26,6 +26,9 @@ import {
   setStatus,
 } from "./pipeline/analyze";
 import { registerStatusUpdater } from "./agents/caller";
+import { installPreCommitHook } from "./git/hooks";
+import { showOnboardingPanel } from "./ui/onboardingPanel";
+import { signIn, signOut, getSession } from "./git/githubAuth";
 
 export function activate(context: vscode.ExtensionContext): void {
 
@@ -43,6 +46,10 @@ export function activate(context: vscode.ExtensionContext): void {
   registerGlobals(statusBarItem, diagnosticCollection);
   registerStatusUpdater((text, spin) => setStatus(text, spin));
 
+  // Install pre-commit quality gate hook in the workspace git repo
+  const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (wsRoot) { installPreCommitHook(wsRoot); }
+
   // ── Commands ────────────────────────────────────────────────────
 
   const cmdAnalyze = vscode.commands.registerCommand("ai-reviewer.analyze", () => {
@@ -53,6 +60,34 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const cmdClear = vscode.commands.registerCommand("ai-reviewer.clearHistory", async () => {
     await clearAll();
+  });
+
+  const cmdShowWelcome = vscode.commands.registerCommand("ai-reviewer.showWelcome", () => {
+    showOnboardingPanel(context, true).catch(console.error);
+  });
+
+  const cmdGithubSignIn = vscode.commands.registerCommand("ai-reviewer.githubSignIn", async () => {
+    if (getSession()) {
+      vscode.window.showInformationMessage(`AI Reviewer: Already signed in as @${getSession()!.user.login}`);
+      return;
+    }
+    const session = await signIn();
+    if (session) {
+      vscode.window.showInformationMessage(`AI Reviewer: Signed in as @${session.user.login} ✓`);
+    } else {
+      vscode.window.showWarningMessage("AI Reviewer: GitHub sign-in failed.");
+    }
+  });
+
+  const cmdGithubSignOut = vscode.commands.registerCommand("ai-reviewer.githubSignOut", async () => {
+    if (!getSession()) {
+      vscode.window.showInformationMessage("AI Reviewer: Not signed in to GitHub.");
+      return;
+    }
+    const login = getSession()!.user.login;
+    signOut();
+    context.workspaceState.update("onboardingSkipped", false);
+    vscode.window.showInformationMessage(`AI Reviewer: Signed out of @${login}.`);
   });
 
   // ── Quiet-save guard — set by the quietSave command so the next
@@ -85,6 +120,9 @@ export function activate(context: vscode.ExtensionContext): void {
     cmdAnalyze,
     cmdClear,
     cmdQuietSave,
+    cmdShowWelcome,
+    cmdGithubSignIn,
+    cmdGithubSignOut,
     onSave,
     onClose,
   );
@@ -92,6 +130,9 @@ export function activate(context: vscode.ExtensionContext): void {
   // ── Warm up template embeddings on startup ──────────────────────
   setStatus("Ready");
   embedTemplates().catch(console.error);
+
+  // ── Onboarding — show GitHub sign-in panel if not yet connected ──
+  showOnboardingPanel(context).catch(console.error);
 }
 
 export function deactivate(): void {

@@ -20,12 +20,12 @@
  */
 
 import {
-  GROQ_URL, GEMINI_URL, CEREBRAS_URL, OPENROUTER_URL, NVIDIA_URL,
-  GROQ_MODEL, GEMINI_MODEL, CEREBRAS_MODEL, OPENROUTER_MODEL,
+  GROQ_URL, GEMINI_URL, CEREBRAS_URL, OPENROUTER_URL, NVIDIA_URL, ANTHROPIC_URL,
+  GROQ_MODEL, GEMINI_MODEL, CEREBRAS_MODEL, OPENROUTER_MODEL, CLAUDE_MODEL,
   NVIDIA_MODEL_G1, NVIDIA_MODEL_QUALITY, NVIDIA_MODEL_ERROR,
   NVIDIA_MODEL_G2, NVIDIA_MODEL_G3,
   AGENT_PROVIDER, FALLBACK_ORDER, BACKOFF_MS,
-  getGroqKey, getGeminiKey, getCerebrasKey, getOpenRouterKey, getNvidiaKey,
+  getGroqKey, getGeminiKey, getCerebrasKey, getOpenRouterKey, getNvidiaKey, getAnthropicKey,
   getAvailableProviders,
 } from "../core/config";
 
@@ -197,6 +197,43 @@ async function callCerebrasRaw(system: string, user: string): Promise<string> {
   return cbData.choices?.[0]?.message?.content ?? "";
 }
 
+async function callClaudeRaw(system: string, user: string): Promise<string> {
+  const key = getAnthropicKey();
+  if (!key) { throw Object.assign(new Error("Anthropic key not set"), { status: 401 }); }
+
+  const res = await fetch(ANTHROPIC_URL, {
+    method:  "POST",
+    headers: {
+      "Content-Type":      "application/json",
+      "x-api-key":         key,
+      "anthropic-version": "2023-06-01",
+    },
+    signal: withTimeout(FETCH_TIMEOUT_MS),
+    body: JSON.stringify({
+      model:      CLAUDE_MODEL,
+      max_tokens: 4000,
+      temperature: 0.1,
+      system,
+      messages: [{ role: "user", content: user }],
+    }),
+  });
+  if (!res.ok) {
+    let body = "";
+    try { body = await res.text(); } catch {}
+    console.error(`[Claude] HTTP ${res.status} — body:`, body);
+    throw Object.assign(new Error(`Claude ${res.status}: ${body.slice(0, 200)}`), { status: res.status });
+  }
+  const clData = (await res.json()) as any;
+  if (clData.usage) {
+    _tokenLog.push({ provider: "claude", model: CLAUDE_MODEL,
+      promptTokens:     clData.usage.input_tokens  ?? 0,
+      completionTokens: clData.usage.output_tokens ?? 0,
+      totalTokens:      (clData.usage.input_tokens ?? 0) + (clData.usage.output_tokens ?? 0),
+    });
+  }
+  return clData.content?.[0]?.text ?? "";
+}
+
 async function callOpenRouterRaw(system: string, user: string): Promise<string> {
   const key = getOpenRouterKey();
   if (!key) { throw Object.assign(new Error("OpenRouter key not set"), { status: 401 }); }
@@ -231,6 +268,7 @@ async function callOpenRouterRaw(system: string, user: string): Promise<string> 
 
 // ── Provider dispatch table ───────────────────────────────────────
 const PROVIDER_CALLERS: Record<string, (s: string, u: string) => Promise<string>> = {
+  claude:     callClaudeRaw,
   groq:       callGroqRaw,
   gemini:     callGeminiRaw,
   cerebras:   callCerebrasRaw,

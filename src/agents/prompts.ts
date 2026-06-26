@@ -22,6 +22,7 @@ export interface AgentInput {
   testFramework?:    string;   // "Jest", "pytest", "JUnit 5", "testing"
   docFormat?:        string;   // "JSDoc", "Google-style docstring", "Javadoc", "GoDoc"
   languageStyle?:    string;   // language-specific style conventions
+  fileContext?:      string;   // imports + module-level declarations above the function
   templateMatches?:  TemplateMatch[];
   historyMatches?:   HistoryMatch[];
   prComments?:       PRComment[] | { author: string; body: string }[];
