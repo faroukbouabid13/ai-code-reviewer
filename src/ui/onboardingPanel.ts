@@ -220,6 +220,7 @@ export async function showOnboardingPanel(context: vscode.ExtensionContext, forc
     if (msg.type === "githubLogin") {
       const session = await signIn();
       if (session) {
+        context.globalState.update("githubExplicitlyConnected", true);
         _panel?.webview.postMessage({ type: "githubConnected", login: session.user.login });
       } else {
         _panel?.webview.postMessage({ type: "githubLoginFailed" });

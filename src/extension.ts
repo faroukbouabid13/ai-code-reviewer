@@ -94,9 +94,8 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     const session = await signIn();
     if (session) {
-      context.workspaceState.update("githubDisconnected", false);
+      context.globalState.update("githubExplicitlyConnected", true);
       vscode.window.showInformationMessage(`AI Reviewer: Signed in as @${session.user.login} ✓`);
-      sidebarProvider.refresh();
     } else {
       vscode.window.showWarningMessage("AI Reviewer: GitHub sign-in failed.");
     }
@@ -109,9 +108,8 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     const login = getSession()!.user.login;
     signOut();
+    context.globalState.update("githubExplicitlyConnected", false);
     context.workspaceState.update("onboardingSkipped", false);
-    context.workspaceState.update("githubDisconnected", true);
-    sidebarProvider.refresh();
     vscode.window.showInformationMessage(`AI Reviewer: Signed out of @${login}.`);
   });
 
@@ -156,9 +154,10 @@ export function activate(context: vscode.ExtensionContext): void {
   setStatus("Ready");
   embedTemplates().catch(console.error);
 
-  // ── Restore GitHub session silently, then refresh sidebar ────────
-  const wasDisconnected = context.workspaceState.get<boolean>("githubDisconnected");
-  if (!wasDisconnected) {
+  // ── Restore GitHub session only if user previously opted in ────────
+  // Using globalState so sign-out persists across all VS Code windows.
+  const explicitlyConnected = context.globalState.get<boolean>("githubExplicitlyConnected");
+  if (explicitlyConnected) {
     tryRestoreSession().then(session => {
       if (session) { sidebarProvider.refresh(); }
       showOnboardingPanel(context).catch(console.error);

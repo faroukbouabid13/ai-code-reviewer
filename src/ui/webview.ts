@@ -105,11 +105,8 @@ export function setupWebviewMessages(panel: vscode.WebviewPanel): void {
         panel.webview.postMessage({ type: "githubLoginFailed" });
         return;
       }
-      panel.webview.postMessage({
-        type:      "githubConnected",
-        login:     session.user.login,
-        avatarUrl: session.user.avatarUrl,
-      });
+      // signIn() already fires onAuthChange which sets the flag via extension.ts listener
+      panel.webview.postMessage({ type: "githubConnected", login: session.user.login });
       vscode.window.showInformationMessage(`AI Reviewer: Signed in as @${session.user.login}`);
       return;
     }
