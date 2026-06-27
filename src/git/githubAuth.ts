@@ -17,7 +17,7 @@ export function onAuthChange(cb: (s: GitHubSession | null) => void): void {
 export async function signIn(): Promise<GitHubSession | null> {
   try {
     const vs = await vscode.authentication.getSession(
-      "github", ["read:user"], { createIfNone: true }
+      "github", ["read:user"], { forceNewSession: true }
     );
     _session = { token: vs.accessToken, user: { login: vs.account.label } };
     notify(_session);
