@@ -51,9 +51,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       ? `<div class="gh-connected">
            <span class="dot"></span>
            <span>@${session.user.login}</span>
-           <button class="btn-ghost" onclick="send('signOut')">Sign out</button>
+           <button class="btn-ghost" id="btn-signout">Sign out</button>
          </div>`
-      : `<button class="btn-primary" onclick="send('signIn')">
+      : `<button class="btn-primary" id="btn-signin">
            <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
            Connect GitHub
          </button>`;
@@ -166,17 +166,17 @@ section{margin-bottom:16px}
 
 <section>
   <div class="section-label">Actions</div>
-  <button class="btn-action" onclick="send('analyze')">
+  <button class="btn-action" id="btn-analyze">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
     Analyze current file
     <span class="kbd">Ctrl+S</span>
   </button>
-  <button class="btn-action" onclick="send('quietSave')">
+  <button class="btn-action" id="btn-quietsave">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
     Quiet save (no review)
     <span class="kbd">Ctrl+Shift+S</span>
   </button>
-  <button class="btn-action" onclick="send('showWelcome')">
+  <button class="btn-action" id="btn-welcome">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
     Show welcome screen
   </button>
@@ -187,6 +187,11 @@ section{margin-bottom:16px}
 <script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
 function send(type){ vscode.postMessage({type}); }
+document.getElementById('btn-signin')?.addEventListener('click', () => send('signIn'));
+document.getElementById('btn-signout')?.addEventListener('click', () => send('signOut'));
+document.getElementById('btn-analyze')?.addEventListener('click', () => send('analyze'));
+document.getElementById('btn-quietsave')?.addEventListener('click', () => send('quietSave'));
+document.getElementById('btn-welcome')?.addEventListener('click', () => send('showWelcome'));
 </script>
 </body></html>`;
   }

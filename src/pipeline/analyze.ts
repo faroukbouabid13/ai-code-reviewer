@@ -24,7 +24,7 @@ import { writePreCommitCheck }                              from "../git/hooks";
 import { publishDiagnostics }                               from "../ui/diagnostics";
 import { buildHtml, buildStreamSection }                     from "../ui/htmlBuilder";
 import { setupWebviewMessages }                             from "../ui/webview";
-import { setExportData }                                   from "./analysisStore";
+import { setExportData, setActivePanel }                    from "./analysisStore";
 
 import type {
   FunctionInfo, DependenciesResult,
@@ -159,7 +159,8 @@ function getOrCreatePanel(context: vscode.ExtensionContext): vscode.WebviewPanel
     { enableScripts: true, retainContextWhenHidden: true }
   );
 
-  panel.onDidDispose(() => { panel = undefined; }, null, context.subscriptions);
+  panel.onDidDispose(() => { panel = undefined; setActivePanel(null); }, null, context.subscriptions);
+  setActivePanel(panel);
   setupWebviewMessages(panel);
 
   return panel;

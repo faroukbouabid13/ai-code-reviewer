@@ -28,8 +28,9 @@ import {
 import { registerStatusUpdater } from "./agents/caller";
 import { installPreCommitHook } from "./git/hooks";
 import { showOnboardingPanel } from "./ui/onboardingPanel";
-import { signIn, signOut, getSession } from "./git/githubAuth";
+import { signIn, signOut, getSession, tryRestoreSession, onAuthChange } from "./git/githubAuth";
 import { SidebarProvider } from "./ui/sidebarProvider";
+import { getActivePanel } from "./pipeline/analysisStore";
 
 export function activate(context: vscode.ExtensionContext): void {
 
@@ -57,6 +58,19 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.registerWebviewViewProvider(SidebarProvider.viewId, sidebarProvider)
   );
 
+  // ── Sync auth state across sidebar + main panel ─────────────────
+  onAuthChange(session => {
+    sidebarProvider.refresh();
+    const panel = getActivePanel();
+    if (panel) {
+      panel.webview.postMessage(
+        session
+          ? { type: "githubConnected", login: session.user.login }
+          : { type: "githubDisconnected" }
+      );
+    }
+  });
+
   // ── Commands ────────────────────────────────────────────────────
 
   const cmdAnalyze = vscode.commands.registerCommand("ai-reviewer.analyze", () => {
@@ -80,6 +94,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     const session = await signIn();
     if (session) {
+      context.workspaceState.update("githubDisconnected", false);
       vscode.window.showInformationMessage(`AI Reviewer: Signed in as @${session.user.login} ✓`);
       sidebarProvider.refresh();
     } else {
@@ -95,6 +110,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const login = getSession()!.user.login;
     signOut();
     context.workspaceState.update("onboardingSkipped", false);
+    context.workspaceState.update("githubDisconnected", true);
     sidebarProvider.refresh();
     vscode.window.showInformationMessage(`AI Reviewer: Signed out of @${login}.`);
   });
@@ -140,8 +156,16 @@ export function activate(context: vscode.ExtensionContext): void {
   setStatus("Ready");
   embedTemplates().catch(console.error);
 
-  // ── Onboarding — show GitHub sign-in panel if not yet connected ──
-  showOnboardingPanel(context).catch(console.error);
+  // ── Restore GitHub session silently, then refresh sidebar ────────
+  const wasDisconnected = context.workspaceState.get<boolean>("githubDisconnected");
+  if (!wasDisconnected) {
+    tryRestoreSession().then(session => {
+      if (session) { sidebarProvider.refresh(); }
+      showOnboardingPanel(context).catch(console.error);
+    }).catch(console.error);
+  } else {
+    showOnboardingPanel(context).catch(console.error);
+  }
 }
 
 export function deactivate(): void {
