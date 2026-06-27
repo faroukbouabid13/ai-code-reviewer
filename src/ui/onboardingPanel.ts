@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { signIn, tryRestoreSession } from "../git/githubAuth";
+import { signIn, getSession } from "../git/githubAuth";
 
 let _panel: vscode.WebviewPanel | undefined;
 
@@ -196,9 +196,8 @@ window.addEventListener('message',ev=>{
 
 export async function showOnboardingPanel(context: vscode.ExtensionContext, force = false): Promise<void> {
   if (!force) {
-    // Try to silently restore an existing GitHub session — if found, skip onboarding
-    const existing = await tryRestoreSession();
-    if (existing) { return; }
+    // If caller already restored a session, no need to show onboarding
+    if (getSession()) { return; }
 
     // Already shown and skipped this session?
     if (context.workspaceState.get("onboardingSkipped")) { return; }
