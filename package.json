@@ -2,7 +2,7 @@
   "name": "faroukbouabid-ai-code-reviewer",
   "displayName": "AI Code Reviewer by faroukBouabid",
   "description": "9-agent multi-provider AI code review pipeline with RAG, debate, and multi-language support",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "publisher": "faroukBouabid",
   "repository": {
     "type": "git",
