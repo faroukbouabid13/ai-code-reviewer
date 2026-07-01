@@ -20,12 +20,12 @@
  */
 
 import {
-  GROQ_URL, GEMINI_URL, CEREBRAS_URL, OPENROUTER_URL, NVIDIA_URL, ANTHROPIC_URL,
-  GROQ_MODEL, GEMINI_MODEL, CEREBRAS_MODEL, OPENROUTER_MODEL, CLAUDE_MODEL,
+  GROQ_URL, GEMINI_URL, CEREBRAS_URL, OPENROUTER_URL, NVIDIA_URL, ANTHROPIC_URL, SAMBANOVA_URL,
+  GROQ_MODEL, GEMINI_MODEL, CEREBRAS_MODEL, OPENROUTER_MODEL, CLAUDE_MODEL, SAMBANOVA_MODEL,
   NVIDIA_MODEL_G1, NVIDIA_MODEL_QUALITY, NVIDIA_MODEL_ERROR,
   NVIDIA_MODEL_G2, NVIDIA_MODEL_G3,
   AGENT_PROVIDER, FALLBACK_ORDER, BACKOFF_MS,
-  getGroqKey, getGeminiKey, getCerebrasKey, getOpenRouterKey, getNvidiaKey, getAnthropicKey,
+  getGroqKey, getGeminiKey, getCerebrasKey, getOpenRouterKey, getNvidiaKey, getAnthropicKey, getSambanovaKey,
   getAvailableProviders,
 } from "../core/config";
 
@@ -37,6 +37,28 @@ export interface TokenEntry {
 const _tokenLog: TokenEntry[] = [];
 export function resetTokenUsage(): void { _tokenLog.length = 0; }
 export function getTokenUsage(): TokenEntry[] { return [..._tokenLog]; }
+
+interface RateLimitEntry { provider: string; agent: string; retryAfterMs: number; hitAt: number; }
+const _rateLimitLog: RateLimitEntry[] = [];
+export function resetRateLimitLog(): void { _rateLimitLog.length = 0; }
+export function getRateLimitLog(): RateLimitEntry[] { return [..._rateLimitLog]; }
+
+let _rateLimitCb: ((entries: RateLimitEntry[]) => void) | null = null;
+export function onRateLimitUpdate(fn: (entries: RateLimitEntry[]) => void): void { _rateLimitCb = fn; }
+
+function parseRetryMs(body: string): number {
+  // Groq: "Please try again in 1h9m9.792s" or "47m2.687s" or "24m38s"
+  const m = body.match(/try again in (?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?/i);
+  if (m) {
+    return ((parseInt(m[1] ?? "0") * 3600)
+          + (parseInt(m[2] ?? "0") * 60)
+          + parseFloat(m[3]  ?? "0")) * 1000;
+  }
+  // Gemini: "retryDelay":"23s"
+  const g = body.match(/"retryDelay"\s*:\s*"(\d+)s"/);
+  if (g) { return parseInt(g[1]) * 1000; }
+  return 0;
+}
 
 // ── Status updater (injected from analyze.ts) ─────────────────────
 let _setStatus: ((text: string, spin?: boolean) => void) | null = null;
@@ -74,7 +96,7 @@ async function callGroqRaw(system: string, user: string): Promise<string> {
     let body = "";
     try { body = await res.text(); } catch {}
     console.error(`[Groq] HTTP ${res.status} — body:`, body);
-    throw Object.assign(new Error(`Groq ${res.status}: ${body.slice(0, 200)}`), { status: res.status });
+    throw Object.assign(new Error(`Groq ${res.status}: ${body.slice(0, 200)}`), { status: res.status, retryMs: parseRetryMs(body) });
   }
   const groqData = (await res.json()) as any;
   if (groqData.usage) {
@@ -104,7 +126,7 @@ async function callGeminiRaw(system: string, user: string): Promise<string> {
     let body = "";
     try { body = await res.text(); } catch {}
     console.error(`[Gemini] HTTP ${res.status} — body:`, body);
-    throw Object.assign(new Error(`Gemini ${res.status}: ${body.slice(0, 200)}`), { status: res.status });
+    throw Object.assign(new Error(`Gemini ${res.status}: ${body.slice(0, 200)}`), { status: res.status, retryMs: parseRetryMs(body) });
   }
   const gemData = (await res.json()) as any;
   if (gemData.usageMetadata) {
@@ -266,6 +288,38 @@ async function callOpenRouterRaw(system: string, user: string): Promise<string> 
   return orData.choices?.[0]?.message?.content ?? "";
 }
 
+async function callSambanovaRaw(system: string, user: string): Promise<string> {
+  const key = getSambanovaKey();
+  if (!key) { throw Object.assign(new Error("SambaNova key not set"), { status: 401 }); }
+
+  const res = await fetch(SAMBANOVA_URL, {
+    method:  "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
+    signal:  withTimeout(FETCH_TIMEOUT_MS),
+    body: JSON.stringify({
+      model:       SAMBANOVA_MODEL,
+      messages:    [{ role: "system", content: system }, { role: "user", content: user }],
+      temperature: 0.1,
+      max_tokens:  4000,
+    }),
+  });
+  if (!res.ok) {
+    let body = "";
+    try { body = await res.text(); } catch {}
+    console.error(`[SambaNova] HTTP ${res.status} — body:`, body);
+    throw Object.assign(new Error(`SambaNova ${res.status}: ${body.slice(0, 200)}`), { status: res.status });
+  }
+  const snData = (await res.json()) as any;
+  if (snData.usage) {
+    _tokenLog.push({ provider: "sambanova", model: SAMBANOVA_MODEL,
+      promptTokens:     snData.usage.prompt_tokens     ?? 0,
+      completionTokens: snData.usage.completion_tokens ?? 0,
+      totalTokens:      snData.usage.total_tokens      ?? 0,
+    });
+  }
+  return snData.choices?.[0]?.message?.content ?? "";
+}
+
 // ── Provider dispatch table ───────────────────────────────────────
 const PROVIDER_CALLERS: Record<string, (s: string, u: string) => Promise<string>> = {
   claude:     callClaudeRaw,
@@ -273,6 +327,7 @@ const PROVIDER_CALLERS: Record<string, (s: string, u: string) => Promise<string>
   gemini:     callGeminiRaw,
   cerebras:   callCerebrasRaw,
   openrouter: callOpenRouterRaw,
+  sambanova:  callSambanovaRaw,
   // 5 separate NVIDIA NIM entries — each model has its own 40 RPM queue
   nvidia:   (s, u) => callNvidiaRaw(s, u, NVIDIA_MODEL_G1),   // no Think High — avoids 90s timeout on free tier
   nvidiaQ:  (s, u) => callNvidiaRaw(s, u, NVIDIA_MODEL_QUALITY),
@@ -350,6 +405,10 @@ export async function callAgent(
 
       // Rate limit or timeout → try next provider in fallback chain
       if (is429 || isTimeout) {
+        if (is429) {
+          _rateLimitLog.push({ provider, agent: agentName, retryAfterMs: err?.retryMs ?? 0, hitAt: Date.now() });
+          _rateLimitCb?.([..._rateLimitLog]);
+        }
         const delay = isTimeout ? 0 : BACKOFF_MS[Math.min(attempt, BACKOFF_MS.length - 1)];
         const next  = sequence[attempt + 1] ?? "none";
         const reason = isTimeout ? "timeout" : "rate limit";

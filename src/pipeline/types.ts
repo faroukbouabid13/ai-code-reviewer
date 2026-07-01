@@ -97,6 +97,13 @@ export interface TokenUsage {
   totalTokens:      number;
 }
 
+export interface RateLimitEntry {
+  provider:     string;
+  agent:        string;
+  retryAfterMs: number;  // 0 = unknown wait time
+  hitAt:        number;  // Date.now() when the limit was hit
+}
+
 export interface DebateArgument {
   issue:     string;
   reasoning: string;

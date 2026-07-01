@@ -14,7 +14,7 @@ import { TEMPLATES, templateSearch }                        from "../rag/templat
 import { insertVector, vectorSearch, getVectorCount,
          getAuthorVectors }                                 from "../rag/lancedb";
 import { runAgentWaves }                                    from "../agents/orchestrator";
-import { resetTokenUsage, getTokenUsage }                   from "../agents/caller";
+import { resetTokenUsage, getTokenUsage, resetRateLimitLog, getRateLimitLog } from "../agents/caller";
 import { ensureHistory, writeAuditLog,
          writeScore, readScores,
          loadStyleConfig, readPackageJson, clearHistory }   from "../store/history";
@@ -183,6 +183,7 @@ export async function analyze(
 
   setStatus("Analyzing…", true);
   resetTokenUsage();
+  resetRateLimitLog();
 
   // ── Pick language adapter ─────────────────────────────────────────
   const adapter = getAdapter(doc.languageId);
@@ -381,7 +382,7 @@ export async function analyze(
           compileErrors, dnaMismatch, temporalDecay,
         },
       }],
-      dependenciesResult, providerLog, isStreaming: true, tokenUsage: getTokenUsage(),
+      dependenciesResult, providerLog, isStreaming: true, tokenUsage: getTokenUsage(), rateLimits: getRateLimitLog(),
     });
     p.reveal(vscode.ViewColumn.Beside, true);
     setStatus(`Analyzing ${fnInfo.name}…`, true);
@@ -485,6 +486,7 @@ export async function analyze(
     dependenciesResult,
     providerLog,
     tokenUsage:         getTokenUsage(),
+    rateLimits:         getRateLimitLog(),
   });
   setExportData({ file: relative, results: pageResults, dependenciesResult, git: { remote: git.remote, branch: git.branch } });
   p.reveal(vscode.ViewColumn.Beside, true);

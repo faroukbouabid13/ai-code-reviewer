@@ -17,7 +17,7 @@ export function onAuthChange(cb: (s: GitHubSession | null) => void): void {
 export async function signIn(): Promise<GitHubSession | null> {
   try {
     const vs = await vscode.authentication.getSession(
-      "github", ["read:user"], { forceNewSession: true }
+      "github", ["read:user", "repo"], { forceNewSession: true }
     );
     _session = { token: vs.accessToken, user: { login: vs.account.label } };
     notify(_session);
@@ -41,7 +41,7 @@ export async function getRepoToken(): Promise<string | null> {
 export async function tryRestoreSession(): Promise<GitHubSession | null> {
   try {
     const vs = await vscode.authentication.getSession(
-      "github", ["read:user"], { silent: true }
+      "github", ["read:user", "repo"], { silent: true }
     );
     if (!vs) { return null; }
     _session = { token: vs.accessToken, user: { login: vs.account.label } };

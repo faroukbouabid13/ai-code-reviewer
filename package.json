@@ -32,7 +32,7 @@
         {
           "id": "ai-reviewer-sidebar",
           "title": "AI Code Reviewer",
-          "icon": "media/owl.svg"
+          "icon": "media/fox.png"
         }
       ]
     },
@@ -42,7 +42,7 @@
           "type": "webview",
           "id": "ai-reviewer.sidebar",
           "name": "AI Code Reviewer",
-          "icon": "media/owl.svg"
+          "icon": "media/fox.png"
         }
       ]
     },
@@ -74,6 +74,18 @@
       {
         "command": "ai-reviewer.githubSignOut",
         "title": "AI Reviewer: Disconnect GitHub Account"
+      },
+      {
+        "command": "ai-reviewer.selectRepo",
+        "title": "AI Reviewer: Select Repository"
+      },
+      {
+        "command": "ai-reviewer.pushAndReview",
+        "title": "AI Reviewer: Push & Review (create PR)"
+      },
+      {
+        "command": "ai-reviewer.reviewPR",
+        "title": "AI Reviewer: Review a Teammate's PR"
       }
     ],
     "keybindings": [
@@ -110,7 +122,12 @@
         "aiReviewer.openrouterApiKey": {
           "type": "string",
           "default": "",
-          "description": "OpenRouter API key — debate agent + embeddings fallback"
+          "description": "OpenRouter API key — embeddings fallback"
+        },
+        "aiReviewer.sambanovaApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "SambaNova API key — security fallback (Meta-Llama-3.3-70B-Instruct)"
         },
         "aiReviewer.anthropicApiKey": {
           "type": "string",

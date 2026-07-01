@@ -7,6 +7,7 @@ export const GEMINI_URL      = (key: string) =>
 export const CEREBRAS_URL    = "https://api.cerebras.ai/v1/chat/completions";
 export const NVIDIA_URL      = "https://integrate.api.nvidia.com/v1/chat/completions";
 export const OPENROUTER_URL  = "https://openrouter.ai/api/v1/chat/completions";
+export const SAMBANOVA_URL   = "https://api.sambanova.ai/v1/chat/completions";
 export const ANTHROPIC_URL   = "https://api.anthropic.com/v1/messages";
 
 // ── Provider → Agent assignments (what runs where) ────────────────
@@ -25,8 +26,9 @@ export const OPENROUTER_EMBED      = "https://openrouter.ai/api/v1/embeddings";
 // ── Model identifiers ──────────────────────────────────────────────
 export const GROQ_MODEL       = "llama-3.3-70b-versatile";                  // security (deepseek-r1-distill decommissioned on Groq)
 export const GEMINI_MODEL     = "gemini-2.5-flash";                          // quality: balanced
-export const CEREBRAS_MODEL   = "llama3.1-8b";                               // errors: llama3.3-70b not accessible on free tier
+export const CEREBRAS_MODEL   = "gemma-4-31b";                               // confirmed available on this Cerebras account
 export const OPENROUTER_MODEL = "meta-llama/llama-3.3-70b-instruct:free";
+export const SAMBANOVA_MODEL  = "Meta-Llama-3.3-70B-Instruct";               // SambaNova — same Llama 3.3 70B, fast RDU inference
 export const EMBED_MODEL      = "openai/text-embedding-3-small";
 export const CLAUDE_MODEL     = "claude-haiku-4-5-20251001";                 // security: fast + affordable
 
@@ -41,23 +43,22 @@ export const AGENT_PROVIDER: Record<string, string> = {
   docs:          "nvidia3",   // llama-4-maverick               — balanced (G3)
   tests:         "nvidia3",
   dependencies:  "nvidia3",
-  synthesis:        "groq",       // Final refactor — incorporates all 9 agent findings
+  synthesis:        "cerebras",   // Final refactor — incorporates all 9 agent findings
   debateStrict:     "cerebras",   // Agent A — Strict Senior Engineer (grey-zone scores 4-7 only)
-  debatePragmatic:  "openrouter", // Agent B — Pragmatic Developer    (grey-zone scores 4-7 only)
+  debatePragmatic:  "gemini",     // Agent B — Pragmatic Developer    (grey-zone scores 4-7 only)
 };
 
 // ── Fallback order per provider ────────────────────────────────────
 export const FALLBACK_ORDER: Record<string, string[]> = {
-  claude:     ["groq", "cerebras", "openrouter", "gemini"],  // security fallback
-  groq:       ["cerebras", "openrouter", "gemini"],
-  gemini:     ["groq", "cerebras", "openrouter", "nvidia3"],  // quality fallback
-  cerebras:   ["groq", "openrouter", "gemini"],       // error fallback
-  nvidia2:    ["groq", "cerebras", "openrouter", "gemini"],
-  nvidia3:    ["groq", "cerebras", "openrouter", "gemini"],
-  nvidia:     ["groq", "cerebras", "openrouter", "gemini"],
-  nvidiaQ:    ["gemini", "groq", "cerebras", "openrouter"],
-  nvidiaE:    ["groq", "openrouter", "gemini"],                    // cerebras skipped — no access on this account
-  openrouter: ["groq", "cerebras", "gemini"],
+  claude:     ["groq", "cerebras", "gemini"],
+  groq:       ["cerebras", "sambanova", "gemini"],
+  gemini:     ["cerebras", "nvidia3"],
+  cerebras:   ["groq", "gemini"],
+  nvidia2:    ["groq", "cerebras", "gemini"],
+  nvidia3:    ["groq", "cerebras", "gemini"],
+  nvidia:     ["groq", "cerebras", "gemini"],
+  nvidiaQ:    ["gemini", "groq", "cerebras"],
+  nvidiaE:    ["groq", "gemini"],
 };
 
 // ── Fast backoff (ms) ──────────────────────────────────────────────
@@ -83,15 +84,41 @@ export const SUPPORTED_LANGUAGES = new Set([
   "python", "java", "go",
 ]);
 
-// ── API key accessors ─────────────────────────────────────────────
+// ── Key cache (populated from SecretStorage at activation) ───────
+const _keyCache = new Map<string, string>();
+
+export async function initKeyCache(secrets: vscode.SecretStorage): Promise<void> {
+  const keys: [string, string][] = [
+    ["groqApiKey",       "aiReviewer.groqApiKey"],
+    ["geminiApiKey",     "aiReviewer.geminiApiKey"],
+    ["nvidiaApiKey",     "aiReviewer.nvidiaApiKey"],
+    ["cerebrasApiKey",   "aiReviewer.cerebrasApiKey"],
+    ["sambanovaApiKey",  "aiReviewer.sambanovaApiKey"],
+  ];
+  await Promise.all(keys.map(async ([local, secretKey]) => {
+    const val = await secrets.get(secretKey);
+    if (val) { _keyCache.set(local, val); }
+  }));
+}
+
+export function setCachedKey(localKey: string, value: string): void {
+  if (value) { _keyCache.set(localKey, value); }
+  else        { _keyCache.delete(localKey); }
+}
+
+// ── API key accessors — SecretStorage cache first, settings fallback ──
 const cfg = () => vscode.workspace.getConfiguration("aiReviewer");
-export const getNvidiaKey     = () => cfg().get<string>("nvidiaApiKey")       ?? "";
-export const getGroqKey       = () => cfg().get<string>("groqApiKey")         ?? "";
-export const getGeminiKey     = () => cfg().get<string>("geminiApiKey")      ?? "";
-export const getCerebrasKey   = () => cfg().get<string>("cerebrasApiKey")    ?? "";
-export const getOpenRouterKey = () => cfg().get<string>("openrouterApiKey")  ?? "";
-export const getGithubToken   = () => cfg().get<string>("githubToken")       ?? "";
-export const getAnthropicKey  = () => cfg().get<string>("anthropicApiKey")   ?? "";
+const k = (local: string, cfgKey: string) =>
+  _keyCache.get(local) || cfg().get<string>(cfgKey) || "";
+
+export const getNvidiaKey     = () => k("nvidiaApiKey",     "nvidiaApiKey");
+export const getGroqKey       = () => k("groqApiKey",       "groqApiKey");
+export const getGeminiKey     = () => k("geminiApiKey",     "geminiApiKey");
+export const getCerebrasKey   = () => k("cerebrasApiKey",   "cerebrasApiKey");
+export const getOpenRouterKey = () => k("openrouterApiKey", "openrouterApiKey");
+export const getSambanovaKey  = () => k("sambanovaApiKey",  "sambanovaApiKey");
+export const getGithubToken   = () => cfg().get<string>("githubToken") ?? "";
+export const getAnthropicKey  = () => k("anthropicApiKey",  "anthropicApiKey");
 export const getEmbedKey      = () => getOpenRouterKey() || getGroqKey();
 
 // ── Key availability check ─────────────────────────────────────────
@@ -102,6 +129,7 @@ export function getAvailableProviders(): string[] {
   if (getGeminiKey())     { available.push("gemini");     }
   if (getCerebrasKey())   { available.push("cerebras");   }
   if (getOpenRouterKey()) { available.push("openrouter"); }
+  if (getSambanovaKey())  { available.push("sambanova");  }
   if (getAnthropicKey())  { available.push("claude");     }
   return available;
 }

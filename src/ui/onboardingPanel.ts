@@ -3,179 +3,142 @@ import { signIn, getSession } from "../git/githubAuth";
 
 let _panel: vscode.WebviewPanel | undefined;
 
+const GH_ICON = `<svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>`;
+
 function buildHtml(iconUri: string): string {
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+  return `<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AI Code Reviewer</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'unsafe-inline'; img-src vscode-resource: data: https:;">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@450&display=swap" rel="stylesheet">
 <style>
-@keyframes glow{0%,100%{box-shadow:0 0 18px #00d4b855,0 0 40px #00d4b822}50%{box-shadow:0 0 28px #00d4b888,0 0 60px #00d4b844}}
-@keyframes fadeIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{
-  height:100%;
-  background:radial-gradient(ellipse at 50% 30%, #0d1f3c 0%, #080d1a 70%);
-  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  height:100%;background:#0D1117;color:#dfe2eb;
+  font-family:'Inter',system-ui,sans-serif;font-size:13px;
   display:flex;align-items:center;justify-content:center;
   overflow:hidden;
 }
-/* Subtle grid background */
-body::before{
-  content:'';position:fixed;inset:0;
-  background-image:linear-gradient(#00d4b808 1px,transparent 1px),linear-gradient(90deg,#00d4b808 1px,transparent 1px);
-  background-size:40px 40px;
-  pointer-events:none;
-}
 .card{
-  background:linear-gradient(145deg,#0f1d35ee,#0a1120ee);
-  border:1px solid #1e3a6e;
-  border-radius:20px;
-  padding:44px 40px 36px;
-  width:380px;
-  text-align:center;
-  animation:fadeIn .5s ease-out;
-  position:relative;
-  box-shadow:0 0 0 1px #00d4b815,0 24px 64px #00000088,0 0 80px #6d5ef610;
+  width:100%;max-width:360px;
+  background:#181c22;border:1px solid #30363D;border-radius:8px;
+  padding:32px 28px 28px;
+  animation:fadeIn .4s ease-out;
+  box-shadow:0 0 20px rgba(201,84,32,.08);
+  transition:border-color .3s;
 }
-/* Teal top accent line */
-.card::before{
-  content:'';position:absolute;top:0;left:10%;right:10%;height:2px;
-  background:linear-gradient(90deg,transparent,#00d4b8,#6d5ef6,#00d4b8,transparent);
-  border-radius:2px;
+.card:hover{border-color:rgba(201,84,32,.3)}
+.logo-wrap{display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:28px}
+.logo-img{width:64px;height:64px;border-radius:12px;object-fit:contain;margin-bottom:16px;filter:drop-shadow(0 0 8px rgba(201,84,32,.25))}
+.logo-fallback{font-size:48px;line-height:1;margin-bottom:16px;display:none}
+h1{font-size:18px;font-weight:700;color:#dfe2eb;margin-bottom:4px;letter-spacing:-.01em}
+.tagline{font-size:12px;color:#dfc0b5;opacity:.8}
+.features{display:flex;flex-direction:column;gap:4px;margin-bottom:28px}
+.feature-row{
+  display:flex;align-items:center;gap:12px;
+  padding:10px 12px;border-radius:6px;border:1px solid transparent;
+  transition:background .15s;cursor:default;
 }
-.owl-wrap{
-  position:relative;display:inline-block;margin-bottom:20px;
+.feature-row:hover{background:#161B22}
+.feature-icon{
+  width:32px;height:32px;border-radius:6px;font-size:16px;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
 }
-.owl-wrap img{
-  width:96px;height:96px;border-radius:22px;
-  animation:glow 3s ease-in-out infinite;
-  display:block;
-}
-.owl-fallback{font-size:80px;line-height:1;display:none}
-h1{
-  font-size:22px;font-weight:800;margin-bottom:6px;
-  background:linear-gradient(135deg,#e2e8f0 30%,#00d4b8);
-  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
-  letter-spacing:-.3px;
-}
-.tagline{
-  color:#4a7fa5;font-size:12px;font-weight:600;letter-spacing:.12em;
-  text-transform:uppercase;margin-bottom:10px;
-}
-.sub{color:#64748b;font-size:13px;line-height:1.65;margin-bottom:28px}
-.sub b{color:#94a3b8}
-
-/* GitHub sign-in button */
-.gh-btn{
+.fi-orange{background:rgba(201,84,32,.12)}
+.fi-green{background:rgba(39,166,64,.12)}
+.fi-blue{background:rgba(255,181,153,.12)}
+.feature-title{font-size:13px;font-weight:600;color:#dfe2eb;line-height:1.2}
+.feature-sub{font-size:10px;color:#dfc0b5;opacity:.7;text-transform:uppercase;letter-spacing:.08em;margin-top:1px}
+.btn-github{
   display:flex;align-items:center;justify-content:center;gap:10px;
-  width:100%;padding:13px 20px;
-  background:linear-gradient(135deg,#00b89c,#00d4b8);
-  border:none;border-radius:10px;
-  color:#080d1a;font-size:14px;font-weight:700;
-  cursor:pointer;
-  transition:all .2s;
-  box-shadow:0 4px 20px #00d4b840;
-  letter-spacing:.01em;
+  width:100%;height:44px;background:#C95420;color:#fff;
+  border:none;border-radius:6px;font-size:13px;font-weight:700;
+  cursor:pointer;font-family:inherit;transition:background .15s;margin-bottom:16px;
 }
-.gh-btn:hover{
-  background:linear-gradient(135deg,#00d4b8,#00e5cc);
-  box-shadow:0 6px 28px #00d4b860;
-  transform:translateY(-1px);
-}
-.gh-btn:active{transform:translateY(0)}
-.gh-btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
-.gh-icon{width:20px;height:20px;fill:#080d1a;flex-shrink:0}
-
-.skip{
-  margin-top:16px;color:#2a4a6b;font-size:12px;
-  cursor:pointer;background:none;border:none;
-  text-decoration:underline;text-underline-offset:3px;
-  transition:color .15s;
-}
-.skip:hover{color:#4a7fa5}
-
-/* Feature hints */
-.hints{
-  margin-top:24px;
-  display:flex;flex-direction:column;gap:8px;
-  text-align:left;
-}
-.hint-row{
-  display:flex;align-items:center;gap:10px;
-  padding:8px 12px;
-  background:#ffffff04;
-  border:1px solid #1e3a6e55;
-  border-radius:8px;
-  font-size:12px;color:#64748b;
-}
-.hint-icon{font-size:16px;flex-shrink:0}
-.hint-row b{color:#00d4b8;font-weight:600}
-
-/* Success state */
-#success-view{display:none;animation:fadeIn .4s ease-out}
-.success-ring{
-  width:96px;height:96px;border-radius:50%;
-  background:linear-gradient(135deg,#00d4b820,#6d5ef620);
-  border:2px solid #00d4b8;
+.btn-github:hover{background:#b04a1c}
+.btn-github:active{transform:scale(.98)}
+.btn-github:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.btn-skip{
   display:flex;align-items:center;justify-content:center;
-  margin:0 auto 20px;
-  font-size:42px;
-  box-shadow:0 0 30px #00d4b844;
+  width:100%;background:none;border:none;color:#dfc0b5;
+  font-size:12px;cursor:pointer;font-family:inherit;opacity:.7;
+  text-decoration:underline;text-underline-offset:3px;transition:opacity .15s;
 }
-.success-name{color:#00d4b8;font-weight:700}
+.btn-skip:hover{opacity:1}
+#success-view{display:none;text-align:center;animation:fadeIn .4s ease-out}
+.success-icon{
+  width:80px;height:80px;border-radius:50%;
+  background:rgba(201,84,32,.1);border:2px solid #C95420;
+  display:flex;align-items:center;justify-content:center;
+  margin:0 auto 20px;font-size:36px;
+  box-shadow:0 0 24px rgba(201,84,32,.3);
+}
+.success-name{color:#C95420;font-weight:700}
 .start-hint{
-  margin-top:16px;padding:10px 14px;
-  background:#00d4b808;border:1px solid #00d4b822;
-  border-radius:8px;font-size:12px;color:#4a7fa5;
-  font-family:monospace;letter-spacing:.02em;
+  margin-top:20px;padding:10px 14px;
+  background:rgba(201,84,32,.06);border:1px solid rgba(201,84,32,.15);
+  border-radius:6px;font-size:12px;color:#dfc0b5;
+  font-family:'JetBrains Mono',monospace;
 }
+.card-footer{
+  margin-top:24px;padding-top:20px;
+  border-top:1px solid rgba(48,54,61,.5);
+  display:flex;align-items:center;justify-content:center;gap:6px;
+}
+.version{font-family:'JetBrains Mono',monospace;font-size:10px;color:#dfc0b5;opacity:.5}
 </style></head><body>
 <div class="card">
-
-  <!-- Sign-in view -->
   <div id="sign-in-view">
-    <div class="owl-wrap">
-      <img src="${iconUri}" alt="AI Code Reviewer"
-        onerror="this.style.display='none';document.querySelector('.owl-fallback').style.display='block'">
-      <span class="owl-fallback">🦉</span>
+    <div class="logo-wrap">
+      <img src="${iconUri}" class="logo-img" alt="AI Code Reviewer"
+        onerror="this.style.display='none';document.querySelector('.logo-fallback').style.display='block'">
+      <span class="logo-fallback">🦊</span>
+      <h1>AI Code Reviewer</h1>
+      <p class="tagline">Multi-agent review in your editor</p>
     </div>
-    <p class="tagline">9 AI agents · Code Review</p>
-    <h1>AI Code Reviewer</h1>
-    <p class="sub">Connect GitHub to post reviews directly<br>to your <b>Pull Requests</b>.</p>
-
-    <button class="gh-btn" id="signin-btn" onclick="doSignIn()">
-      <svg class="gh-icon" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-      Sign in with GitHub
-    </button>
-    <button class="skip" id="skip-btn" onclick="doSkip()">Skip for now</button>
-
-    <div class="hints">
-      <div class="hint-row"><span class="hint-icon">🔍</span><span><b>9 agents</b> review security, quality, complexity & more</span></div>
-      <div class="hint-row"><span class="hint-icon">📬</span><span>Post full reviews as <b>PR comments</b> in one click</span></div>
-      <div class="hint-row"><span class="hint-icon">⚡</span><span><b>Apply fixes</b> directly in your editor</span></div>
+    <div class="features">
+      <div class="feature-row">
+        <div class="feature-icon fi-orange">🤖</div>
+        <div><div class="feature-title">9+ AI Agents</div><div class="feature-sub">Expert logic analysis</div></div>
+      </div>
+      <div class="feature-row">
+        <div class="feature-icon fi-green">🔒</div>
+        <div><div class="feature-title">Security Analysis</div><div class="feature-sub">Deep vulnerability scanning</div></div>
+      </div>
+      <div class="feature-row">
+        <div class="feature-icon fi-blue">⚡</div>
+        <div><div class="feature-title">Instant Fixes</div><div class="feature-sub">One-click refactoring</div></div>
+      </div>
+    </div>
+    <button class="btn-github" id="signin-btn">${GH_ICON} Sign in with GitHub</button>
+    <button class="btn-skip" id="skip-btn">Skip for now</button>
+    <div class="card-footer">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="color:#dfc0b5;opacity:.4"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+      <span class="version">v1.3.4</span>
     </div>
   </div>
-
-  <!-- Success view -->
   <div id="success-view">
-    <div class="success-ring">✓</div>
-    <h1>Connected!</h1>
-    <p class="sub">Signed in as <span class="success-name" id="gh-login"></span></p>
+    <div class="success-icon">✓</div>
+    <h1 style="text-align:center;margin-bottom:8px">Connected!</h1>
+    <p style="text-align:center;color:#dfc0b5;font-size:13px">Signed in as <span class="success-name" id="gh-login"></span></p>
     <div class="start-hint">Save any .ts or .py file to start reviewing →</div>
   </div>
-
 </div>
 <script>
 const vscode=acquireVsCodeApi();
-function doSignIn(){
-  const btn=document.getElementById('signin-btn');
-  const skip=document.getElementById('skip-btn');
-  btn.disabled=true;
-  btn.innerHTML='<svg style="width:18px;height:18px;fill:#080d1a;animation:pulse 1s infinite" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg> Connecting…';
-  skip.style.display='none';
+const signinBtn=document.getElementById('signin-btn');
+const skipBtn=document.getElementById('skip-btn');
+const GH_SVG='${GH_ICON.replace(/'/g, "\\'")}';
+signinBtn.addEventListener('click',()=>{
+  signinBtn.disabled=true;
+  signinBtn.innerHTML=GH_SVG+' Connecting…';
+  skipBtn.style.display='none';
   vscode.postMessage({type:'githubLogin'});
-}
-function doSkip(){vscode.postMessage({type:'onboardingSkip'});}
+});
+skipBtn.addEventListener('click',()=>vscode.postMessage({type:'onboardingSkip'}));
 window.addEventListener('message',ev=>{
   const d=ev.data;
   if(d.type==='githubConnected'){
@@ -185,10 +148,9 @@ window.addEventListener('message',ev=>{
     setTimeout(()=>vscode.postMessage({type:'onboardingDone'}),2500);
   }
   if(d.type==='githubLoginFailed'){
-    const btn=document.getElementById('signin-btn');
-    btn.disabled=false;
-    btn.innerHTML='<svg class="gh-icon" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg> Sign in with GitHub';
-    document.getElementById('skip-btn').style.display='inline';
+    signinBtn.disabled=false;
+    signinBtn.innerHTML=GH_SVG+' Sign in with GitHub';
+    skipBtn.style.display='flex';
   }
 });
 </script></body></html>`;
@@ -196,10 +158,7 @@ window.addEventListener('message',ev=>{
 
 export async function showOnboardingPanel(context: vscode.ExtensionContext, force = false): Promise<void> {
   if (!force) {
-    // If caller already restored a session, no need to show onboarding
     if (getSession()) { return; }
-
-    // Already shown and skipped this session?
     if (context.workspaceState.get("onboardingSkipped")) { return; }
   }
 

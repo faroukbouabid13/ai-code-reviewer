@@ -1,7 +1,8 @@
 export interface PRInfo {
-  owner:  string;
-  repo:   string;
-  number: number;
+  owner:   string;
+  repo:    string;
+  number:  number;
+  headSha?: string;
 }
 
 export function parseGitHubRemote(remote: string): { owner: string; repo: string } | null {
@@ -22,7 +23,7 @@ export async function detectOpenPR(token: string, remote: string, branch: string
     if (!res.ok) { return null; }
     const prs = await res.json() as any[];
     if (!prs.length) { return null; }
-    return { owner, repo, number: prs[0].number };
+    return { owner, repo, number: prs[0].number, headSha: prs[0].head?.sha };
   } catch {
     return null;
   }

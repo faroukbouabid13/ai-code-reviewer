@@ -1,18 +1,29 @@
 import * as vscode from "vscode";
 import * as fs     from "fs";
 import * as path   from "path";
-import { getGithubToken } from "../core/config";
-import { runCmd }         from "./gitContext";
-import type { PRContext } from "../pipeline/types";
+import { getToken }        from "./githubAuth";
+import { getSelectedRepo } from "./repoSelector";
+import { runCmd }          from "./gitContext";
+import type { PRContext }  from "../pipeline/types";
 
 export async function loadPRContext(workspace: string): Promise<PRContext | null> {
-  const token  = getGithubToken();
-  const remote = await runCmd("git remote get-url origin", workspace);
-  const match  = remote.match(/github\.com[:/](.+?)\/(.+?)(?:\.git)?$/);
+  const token = getToken();
 
-  if (token && token.trim() && match) {
+  if (token) {
+    const selected = getSelectedRepo();
+    let owner: string, repo: string;
+
+    if (selected) {
+      owner = selected.owner;
+      repo  = selected.repo;
+    } else {
+      const remote = await runCmd("git remote get-url origin", workspace);
+      const match  = remote.match(/github\.com[:/](.+?)\/(.+?)(?:\.git)?$/);
+      if (!match) { return null; }
+      [, owner, repo] = match;
+    }
+
     try {
-      const [, owner, repo] = match;
       const headers = {
         Authorization: `token ${token}`,
         Accept:        "application/vnd.github.v3+json",

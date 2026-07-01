@@ -47,6 +47,20 @@ echo "AI Reviewer: quality check passed (score $SCORE/10)"
 exit 0
 `;
 
+export function ensureGitignore(workspaceRoot: string): void {
+  const gitignorePath = path.join(workspaceRoot, ".gitignore");
+  const entries = [".ai-reviewer/", "vector-store/"];
+  let content = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, "utf-8") : "";
+  let changed = false;
+  for (const entry of entries) {
+    if (!content.includes(entry)) {
+      content += (content.endsWith("\n") || content === "" ? "" : "\n") + entry + "\n";
+      changed = true;
+    }
+  }
+  if (changed) { fs.writeFileSync(gitignorePath, content, "utf-8"); }
+}
+
 export function installPreCommitHook(workspaceRoot: string): void {
   const gitDir = path.join(workspaceRoot, ".git");
   if (!fs.existsSync(gitDir)) { return; }

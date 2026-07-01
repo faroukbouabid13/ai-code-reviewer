@@ -6,7 +6,12 @@ import { generateCommitMessage } from "../agents/commitMessage";
 import { getExportData }         from "../pipeline/analysisStore";
 import { buildMarkdown }         from "./markdownBuilder";
 import { signIn, signOut, getSession, getRepoToken } from "../git/githubAuth";
-import { detectOpenPR, postPRComment } from "../git/postPRComment";
+import { getSelectedRepo } from "../git/repoSelector";
+import { detectOpenPR } from "../git/postPRComment";
+import { postPRReview, setCommitStatus } from "../git/postPRReview";
+import { buildGitHubReview } from "../agents/githubActionAgent";
+import { getReviewContext } from "../pipeline/analysisStore";
+import { getCurrentBranch } from "../git/pushAndReview";
 
 const CHAT_SYSTEM = `You are a code review assistant. The developer has received an AI review of their code and is asking a follow-up question.
 
@@ -19,6 +24,15 @@ RULES:
 
 export function setupWebviewMessages(panel: vscode.WebviewPanel): void {
   panel.webview.onDidReceiveMessage(async msg => {
+
+    // ── Webview ready — send current auth state ──────────────────
+    if (msg.type === "webviewReady") {
+      const s = getSession();
+      if (s) { panel.webview.postMessage({ type: "githubConnected", login: s.user.login }); }
+      const r = getSelectedRepo();
+      if (r) { panel.webview.postMessage({ type: "repoChanged", fullName: r.fullName }); }
+      return;
+    }
 
     // ── Apply auto-fix ───────────────────────────────────────────
     if (msg.type === "applyFix") {
@@ -123,17 +137,41 @@ export function setupWebviewMessages(panel: vscode.WebviewPanel): void {
       const data = getExportData();
       if (!data) { vscode.window.showWarningMessage("AI Reviewer: No analysis to post."); return; }
 
-      if (!getSession()) { vscode.window.showWarningMessage("AI Reviewer: Sign in to GitHub first."); return; }
+      const session = getSession();
+      if (!session) { vscode.window.showWarningMessage("AI Reviewer: Sign in to GitHub first."); return; }
 
       const repoToken = await getRepoToken();
       if (!repoToken) { vscode.window.showWarningMessage("AI Reviewer: Could not get GitHub repo access."); return; }
 
-      const pr = await detectOpenPR(repoToken, data.git?.remote ?? "", data.git?.branch ?? "");
+      // Resolve PR — prefer ReviewContext (teammate's PR), fall back to branch detection
+      const ctx = getReviewContext();
+      const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "";
+      const currentBranch = await getCurrentBranch(wsRoot).catch(() => data.git?.branch ?? "");
+      let pr = ctx
+        ? { owner: ctx.owner, repo: ctx.repo, number: ctx.prNumber, headSha: ctx.headSha }
+        : await detectOpenPR(repoToken, data.git?.remote ?? "", currentBranch);
+
       if (!pr) { vscode.window.showWarningMessage("AI Reviewer: No open PR found for this branch."); return; }
 
-      const md  = buildMarkdown(data);
-      const ok  = await postPRComment(repoToken, pr, md);
+      // Resolve file path relative to repo root for inline comments
+      const repoRelPath = ctx?.filePath
+        ?? data.file.replace(wsRoot, "").replace(/\\/g, "/").replace(/^\//, "");
+
+      // Build structured GitHub review (inline comments + summary + event)
+      const review = buildGitHubReview(data, repoRelPath);
+      const ok     = await postPRReview(repoToken, pr, review);
+
       if (ok) {
+        // Set commit status if we have a SHA
+        if (pr.headSha) {
+          const scores = data.results.map(r => r.analysis.overallScore).filter(s => s > 0);
+          const avg    = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+          await setCommitStatus(
+            repoToken, pr.owner, pr.repo, pr.headSha,
+            avg >= 7 ? "success" : "failure",
+            avg >= 7 ? `AI Review passed — Score ${avg}/10` : `AI Review failed — Score ${avg}/10`,
+          );
+        }
         vscode.window.showInformationMessage(`AI Reviewer: Review posted to PR #${pr.number} ✓`);
         panel.webview.postMessage({ type: "prPosted", prNumber: pr.number });
       } else {
